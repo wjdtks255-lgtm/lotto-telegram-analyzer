@@ -1,266 +1,338 @@
-import json, os, random, time, itertools
-from datetime import datetime, timezone
+
+import os,json,random,time
+from datetime import datetime,timedelta,timezone
 from pathlib import Path
-from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
+from urllib.request import Request,urlopen
+from urllib.parse import urlencode
 
-ROOT = Path(__file__).resolve().parent
-DATA = ROOT / "data"
-DRAWS_FILE = DATA / "draws.json"
-STATE_FILE = DATA / "state.json"
-REPORT_FILE = DATA / "latest_report.json"
-DATA.mkdir(exist_ok=True)
-TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
-CHAT_ID = (os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID") or "").strip()
-TZ_KST = __import__("datetime").timezone(__import__("datetime").timedelta(hours=9))
+KST=timezone(timedelta(hours=9))
+BASE="https://www.dhlottery.co.kr"
+DATA=Path("data")
+DRAWS_FILE=DATA/"draws.json"
+STATE_FILE=DATA/"state.json"
+TOKEN=os.getenv("TELEGRAM_TOKEN","").strip()
+CHAT_ID=(os.getenv("TELEGRAM_CHAT_ID") or os.getenv("CHAT_ID") or "").strip()
+TICKET_COUNT=5
+HISTORY_WEEKS=30
+HEADERS={"User-Agent":"Mozilla/5.0","Accept":"application/json, text/plain, */*","Referer":BASE+"/lt645/result"}
 
-# 외부 접속 차단 및 파일 부재 시 사용할 기본 백업 데이터 (최근 회차 포함)
-DEFAULT_DRAWS = {
-    "source": "Embedded Fallback Cache",
-    "draws": [
-        {"round": 1, "date": "2002-12-07", "numbers": [10, 23, 29, 33, 37, 40], "bonus": 16},
-        {"round": 1120, "date": "2024-05-25", "numbers": [2, 12, 19, 28, 40, 42], "bonus": 44},
-        {"round": 1121, "date": "2024-06-01", "numbers": [5, 8, 14, 22, 35, 43], "bonus": 11},
-        {"round": 1122, "date": "2024-06-08", "numbers": [11, 15, 24, 32, 39, 45], "bonus": 7},
-        {"round": 1123, "date": "2024-06-15", "numbers": [3, 9, 21, 27, 34, 41], "bonus": 18},
-        {"round": 1124, "date": "2024-06-22", "numbers": [6, 13, 20, 29, 36, 44], "bonus": 2},
-        {"round": 1125, "date": "2024-06-29", "numbers": [1, 10, 18, 25, 33, 42], "bonus": 15},
-        {"round": 1126, "date": "2024-07-06", "numbers": [4, 12, 22, 31, 38, 45], "bonus": 9},
-        {"round": 1127, "date": "2024-07-13", "numbers": [7, 16, 23, 30, 37, 43], "bonus": 5},
-        {"round": 1128, "date": "2024-07-20", "numbers": [8, 17, 26, 34, 39, 41], "bonus": 12},
-        {"round": 1129, "date": "2024-07-27", "numbers": [2, 11, 19, 28, 35, 40], "bonus": 22},
-        {"round": 1130, "date": "2024-08-03", "numbers": [5, 14, 21, 29, 36, 44], "bonus": 17},
-        {"round": 1131, "date": "2024-08-10", "numbers": [9, 15, 24, 32, 37, 42], "bonus": 3},
-        {"round": 1132, "date": "2024-08-17", "numbers": [1, 10, 18, 27, 33, 45], "bonus": 19},
-        {"round": 1133, "date": "2024-08-24", "numbers": [6, 13, 22, 30, 38, 41], "bonus": 25},
-        {"round": 1134, "date": "2024-08-31", "numbers": [3, 12, 20, 26, 35, 43], "bonus": 8},
-        {"round": 1135, "date": "2024-09-07", "numbers": [4, 11, 19, 28, 34, 40], "bonus": 14},
-        {"round": 1136, "date": "2024-09-14", "numbers": [7, 16, 23, 31, 37, 44], "bonus": 6},
-        {"round": 1137, "date": "2024-09-21", "numbers": [2, 9, 17, 25, 32, 39], "bonus": 13},
-        {"round": 1138, "date": "2024-09-28", "numbers": [5, 14, 21, 29, 36, 42], "bonus": 20},
-        {"round": 1139, "date": "2024-10-05", "numbers": [8, 15, 24, 33, 38, 45], "bonus": 10},
-        {"round": 1140, "date": "2024-10-12", "numbers": [1, 10, 18, 27, 35, 41], "bonus": 4},
-        {"round": 1141, "date": "2024-10-19", "numbers": [6, 13, 20, 30, 37, 44], "bonus": 21},
-        {"round": 1142, "date": "2024-10-26", "numbers": [3, 12, 22, 31, 39, 43], "bonus": 16},
-        {"round": 1143, "date": "2024-11-02", "numbers": [4, 11, 19, 26, 34, 40], "bonus": 7},
-        {"round": 1144, "date": "2024-11-09", "numbers": [7, 15, 24, 29, 36, 42], "bonus": 11},
-        {"round": 1145, "date": "2024-11-16", "numbers": [2, 9, 17, 25, 32, 38], "bonus": 18},
-        {"round": 1146, "date": "2024-11-23", "numbers": [5, 14, 21, 28, 35, 45], "bonus": 9},
-        {"round": 1147, "date": "2024-11-30", "numbers": [8, 16, 23, 30, 37, 41], "bonus": 12},
-        {"round": 1148, "date": "2024-12-07", "numbers": [1, 10, 18, 27, 33, 44], "bonus": 15},
-        {"round": 1149, "date": "2024-12-14", "numbers": [6, 13, 20, 31, 38, 42], "bonus": 3},
-        {"round": 1150, "date": "2024-12-21", "numbers": [3, 11, 22, 29, 36, 40], "bonus": 19},
-        {"round": 1151, "date": "2024-12-28", "numbers": [4, 12, 19, 26, 34, 45], "bonus": 22},
-        {"round": 1152, "date": "2025-01-04", "numbers": [7, 15, 24, 32, 39, 43], "bonus": 5},
-        {"round": 1153, "date": "2025-01-11", "numbers": [2, 10, 17, 25, 33, 41], "bonus": 14},
-        {"round": 1154, "date": "2025-01-18", "numbers": [5, 14, 21, 28, 35, 42], "bonus": 8},
-        {"round": 1155, "date": "2025-01-25", "numbers": [8, 16, 23, 30, 37, 44], "bonus": 11},
-        {"round": 1156, "date": "2025-02-01", "numbers": [1, 9, 18, 27, 34, 40], "bonus": 17},
-        {"round": 1157, "date": "2025-02-08", "numbers": [6, 13, 20, 29, 36, 45], "bonus": 2},
-        {"round": 1158, "date": "2025-02-15", "numbers": [3, 11, 22, 31, 38, 43], "bonus": 12},
-        {"round": 1159, "date": "2025-02-22", "numbers": [4, 12, 19, 26, 33, 39], "bonus": 7},
-        {"round": 1160, "date": "2025-03-01", "numbers": [7, 15, 24, 32, 40, 44], "bonus": 16}
-    ]
-}
+def now():
+    return datetime.now(KST)
 
-def load_json(path, default):
+def read_json(path,default):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (OSError,ValueError,TypeError):
         return default
 
-def atomic_json(path, obj):
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+def save_json(path,obj):
+    DATA.mkdir(parents=True,exist_ok=True)
+    tmp=path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(obj,ensure_ascii=False,indent=2),encoding="utf-8")
     tmp.replace(path)
 
-def sync_draws():
-    old = load_json(DRAWS_FILE, DEFAULT_DRAWS)
-    draws = old.get("draws", [])
+def request_json(url):
+    req=Request(url,headers=HEADERS)
+    with urlopen(req,timeout=25) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+def parse_row(row):
+    try:
+        rnd=int(row["ltEpsd"])
+        nums=[int(row[f"tm{i}WnNo"]) for i in range(1,7)]
+        bonus=int(row["bnsWnNo"])
+        raw=str(row.get("ltRflYmd",""))
+        date=(raw[:4]+"-"+raw[4:6]+"-"+raw[6:8]) if len(raw)>=8 and raw[:8].isdigit() else ""
+        if rnd<1 or len(set(nums))!=6 or any(n<1 or n>45 for n in nums):
+            return None
+        if bonus<1 or bonus>45 or bonus in nums or not date:
+            return None
+        datetime.strptime(date,"%Y-%m-%d")
+        return {"round":rnd,"date":date,"numbers":sorted(nums),"bonus":bonus}
+    except (KeyError,ValueError,TypeError):
+        return None
+
+def fetch_one(rnd):
+    url=f"{BASE}/lt645/selectPstLt645Info.do?{urlencode({'srchLtEpsd':rnd})}"
+    obj=request_json(url)
+    rows=(obj.get("data") or {}).get("list") or []
+    for row in rows:
+        draw=parse_row(row)
+        if draw and draw["round"]==rnd:
+            return draw
+    return None
+
+def fetch_batch(center):
+    url=f"{BASE}/lt645/selectPstLt645InfoNew.do?"+urlencode({"srchDir":"center","srchLtEpsd":center})
+    obj=request_json(url)
+    rows=(obj.get("data") or {}).get("list") or []
+    result={}
+    for row in rows:
+        draw=parse_row(row)
+        if draw:
+            result[draw["round"]]=draw
+    return result
+
+def estimated_round():
+    # 1회: 2002-12-07. 토요일 추첨 전에는 이전 회차 기준.
+    today=now()
+    first=datetime(2002,12,7,tzinfo=KST)
+    target=today.date()
+    days=(target-first.date()).days
+    guess=max(1,days//7+1)
+    if today.weekday()==5 and (today.hour,today.minute)<(20,35):
+        guess=max(1,guess-1)
+    return guess
+
+def find_latest():
+    guess=estimated_round()
+    for rnd in range(guess, max(0,guess-5),-1):
+        try:
+            draw=fetch_one(rnd)
+            if draw:
+                latest=rnd
+                while latest<guess+3:
+                    nxt=fetch_one(latest+1)
+                    if not nxt:
+                        break
+                    latest+=1
+                return latest
+        except Exception as e:
+            print(f"Latest lookup error at {rnd}: {e}")
+            break
+    raise RuntimeError("동행복권 최신 회차 조회 실패. 공식 데이터 API 응답을 확인하세요.")
+
+def validate_history(draws):
     if not draws:
-        draws = DEFAULT_DRAWS["draws"]
-    
-    atomic_json(DRAWS_FILE, {"source": "Embedded & Local cache", "updated_at": datetime.now(timezone.utc).isoformat(), "draws": draws})
+        raise RuntimeError("공식 당첨번호 데이터가 비어 있습니다.")
+    draws=sorted(draws,key=lambda d:d["round"])
+    for i,d in enumerate(draws):
+        if i and d["round"]!=draws[i-1]["round"]+1:
+            raise RuntimeError(f"회차 누락: {draws[i-1]['round']} 다음이 {d['round']}입니다.")
+        if len(d["numbers"])!=6 or len(set(d["numbers"]))!=6:
+            raise RuntimeError(f"{d['round']}회 번호 검증 실패")
     return draws
 
-def count_hits(ticket, draw):
-    return len(set(ticket) & set(draw["numbers"]))
+def sync_draws():
+    DATA.mkdir(parents=True,exist_ok=True)
+    old=read_json(DRAWS_FILE,{})
+    existing={}
+    # 과거 DEFAULT_DRAWS / 합성 데이터는 공식 출처 기록이 없으면 재사용하지 않음.
+    if old.get("source")=="Donghaeng Lottery verified API" and isinstance(old.get("draws"),list):
+        for d in old["draws"]:
+            try:
+                existing[int(d["round"])]=d
+            except (KeyError,ValueError,TypeError):
+                pass
 
-def stats(draws):
-    freq = {n: 0 for n in range(1, 46)}
-    recent = draws[-30:] if len(draws) >= 30 else draws
-    recent_freq = {n: 0 for n in range(1, 46)}
-    pair_freq = {}
-    for d in draws:
-        for n in d["numbers"]: freq[n] += 1
-        for a, b in itertools.combinations(d["numbers"], 2):
-            key = f"{a}-{b}"
-            pair_freq[key] = pair_freq.get(key, 0) + 1
-    for d in recent:
-        for n in d["numbers"]: recent_freq[n] += 1
-    last_seen = {}
-    for i, d in enumerate(draws):
-        for n in d["numbers"]: last_seen[n] = i
-    gaps = {n: len(draws) - 1 - last_seen.get(n, -1) for n in range(1, 46)}
-    return {"frequency": freq, "recent30": recent_freq, "gap": gaps, "pairs_top": sorted(pair_freq.items(), key=lambda x: (-x[1], x[0]))[:10]}
+    latest=find_latest()
+    print(f"Official latest round: {latest}")
 
-def make_ticket(draws, mode, rng):
-    s = stats(draws)
-    nums = list(range(1, 46))
-    if mode == "random":
-        return sorted(rng.sample(nums, 6))
-    if mode == "frequency":
-        weights = [1 + s["frequency"][n] for n in nums]
-    elif mode == "recent":
-        weights = [1 + 2*s["recent30"][n] + 0.15*s["frequency"][n] for n in nums]
-    elif mode == "overdue":
-        weights = [1 + min(s["gap"][n], 20) for n in nums]
+    # 기존 공식 데이터가 정상일 때만 새 회차부터 증분 갱신.
+    valid_existing=False
+    if existing:
+        try:
+            old_draws=validate_history(list(existing.values()))
+            valid_existing=(old_draws[-1]["round"]<=latest and old_draws[-1]["round"]>=latest-3)
+        except Exception:
+            valid_existing=False
+
+    if not valid_existing:
+        print("Building clean official archive...")
+        existing={}
+        # 묶음 API로 초기 데이터 수집. 회차 경계는 개별 조회로 보완.
+        for center in range(1,latest+1,15):
+            try:
+                existing.update(fetch_batch(center))
+                print(f"Batch {center}: {len(existing)} rounds collected")
+            except Exception as e:
+                print(f"Batch {center} failed: {e}")
+            time.sleep(0.15)
+        # 묶음 API가 반환하지 않은 회차는 개별 API로 조회.
+        missing=[r for r in range(1,latest+1) if r not in existing]
+        for rnd in missing:
+            try:
+                draw=fetch_one(rnd)
+                if draw:
+                    existing[rnd]=draw
+            except Exception as e:
+                raise RuntimeError(f"{rnd}회 조회 실패: {e}") from e
+            if rnd%50==0:
+                print(f"Individual recovery: {rnd}/{latest}")
+            time.sleep(0.08)
     else:
-        weights = [1.0] * 45
-    chosen = []
-    pool = nums[:]
-    while len(chosen) < 6:
-        total = sum(weights[n-1] for n in pool)
-        r = rng.random() * total
-        acc = 0
-        for n in pool:
-            acc += weights[n-1]
-            if acc >= r:
-                chosen.append(n); pool.remove(n); break
+        for rnd in range(max(existing)+1,latest+1):
+            draw=fetch_one(rnd)
+            if not draw:
+                raise RuntimeError(f"신규 {rnd}회 데이터가 아직 공개되지 않았습니다.")
+            existing[rnd]=draw
+            time.sleep(0.1)
+
+    draws=validate_history([existing[r] for r in sorted(existing) if r<=latest])
+    if draws[0]["round"]!=1 or draws[-1]["round"]!=latest:
+        raise RuntimeError("전체 공식 데이터 범위가 올바르지 않습니다.")
+    save_json(DRAWS_FILE,{"source":"Donghaeng Lottery verified API","updated_at":now().isoformat(),"draws":draws})
+    print(f"Verified archive: {len(draws)} draws, latest={draws[-1]['round']} ({draws[-1]['date']})")
+    return draws
+
+def get_stats(draws):
+    freq={n:0 for n in range(1,46)}
+    last_seen={n:None for n in range(1,46)}
+    for d in draws:
+        for n in d["numbers"]:
+            freq[n]+=1
+            last_seen[n]=d["round"]
+    latest=draws[-1]["round"]
+    gaps={n:(latest-last_seen[n] if last_seen[n] else latest) for n in range(1,46)}
+    recent=draws[-HISTORY_WEEKS:]
+    recent_freq={n:sum(n in d["numbers"] for d in recent) for n in range(1,46)}
+    return freq,gaps,recent_freq
+
+def make_ticket(draws,mode="balanced"):
+    freq,gaps,recent=get_stats(draws)
+    pool=list(range(1,46))
+    weights=[]
+    for n in pool:
+        if mode=="hot":
+            w=1+freq[n]
+        elif mode=="cold":
+            w=1+max(freq.values())-freq[n]
+        elif mode=="recent":
+            w=1+recent[n]*2
+        else:
+            # 빈도·최근 출현·미출현 기간을 완만하게 섞음
+            w=1+0.7*freq[n]+0.8*recent[n]+min(gaps[n],20)*0.12
+        weights.append(max(0.1,w))
+    chosen=[]
+    while len(chosen)<6:
+        n=random.choices(pool,weights=weights,k=1)[0]
+        i=pool.index(n)
+        chosen.append(n)
+        pool.pop(i)
+        weights.pop(i)
     return sorted(chosen)
 
-def generate_tickets(draws, count=10, seed=None):
-    rng = random.Random(seed)
-    modes = ["balanced", "frequency", "recent", "overdue", "random"]
-    tickets, seen = [], set()
-    tries = 0
-    while len(tickets) < count and tries < 10000:
-        mode = modes[len(tickets) % len(modes)]
-        ticket = make_ticket(draws, mode, rng)
-        key = tuple(ticket)
-        if key not in seen:
-            seen.add(key)
-            tickets.append({"numbers": ticket, "method": mode})
-        tries += 1
-    if len(tickets) != count:
-        raise RuntimeError("Could not create unique tickets")
+def generate_tickets(draws,count=TICKET_COUNT):
+    tickets=[]
+    seen=set()
+    methods=["balanced","hot","cold","recent","balanced"]
+    for i in range(count):
+        for _ in range(500):
+            t=make_ticket(draws,methods[i%len(methods)])
+            key=tuple(t)
+            if key not in seen:
+                seen.add(key)
+                tickets.append({"method":methods[i%len(methods)],"numbers":t})
+                break
+        else:
+            raise RuntimeError("추천 조합 중복 방지에 실패했습니다.")
     return tickets
 
-def backtest(draws, window=200, tickets_per_draw=10):
-    if len(draws) < 3:
-        return {"rounds": 0, "note": "Not enough data"}
-    start = max(1, len(draws) - window)
-    rng = random.Random(20261022)
-    strategies = ["balanced", "frequency", "recent", "overdue"]
-    all_hits = {m: [] for m in strategies + ["random"]}
-    prize_counts = {m: {str(k): 0 for k in range(3, 7)} for m in all_hits}
-    for idx in range(start, len(draws)):
-        history, target = draws[:idx], draws[idx]
-        if len(history) < 1: continue
-        for mode in strategies:
-            tickets = []
-            for j in range(tickets_per_draw):
-                if mode == "balanced":
-                    ticket = sorted(rng.sample(range(1,46), 6))
-                else:
-                    ticket = make_ticket(history, mode, rng)
-                tickets.append(ticket)
-            hits = [count_hits(t, target) for t in tickets]
-            all_hits[mode].extend(hits)
-            for h in hits:
-                if h >= 3: prize_counts[mode][str(h)] += 1
-        rt = [sorted(rng.sample(range(1,46), 6)) for _ in range(tickets_per_draw)]
-        rh = [count_hits(t, target) for t in rt]
-        all_hits["random"].extend(rh)
-        for h in rh:
-            if h >= 3: prize_counts["random"][str(h)] += 1
-    summaries = {}
-    for mode, hs in all_hits.items():
-        summaries[mode] = {
-            "ticket_count": len(hs),
-            "avg_hits": round(sum(hs)/len(hs), 4) if hs else 0,
-            "tickets_with_3plus": sum(h >= 3 for h in hs),
-            "hit_distribution_0_to_6": {str(k): hs.count(k) for k in range(7)},
-            "prize_hit_counts": prize_counts[mode]
-        }
-    return {"method": "walk-forward", "rounds_tested": len(range(start, len(draws))), "tickets_per_round_per_strategy": tickets_per_draw, "strategies": summaries}
+def count_hits(ticket,draw):
+    return len(set(ticket)&set(draw["numbers"]))
 
-def telegram_send(text):
+def backtest(draws,window=100):
+    if len(draws)<window+2:
+        return None
+    tested=draws[-window:]
+    total_hits=0
+    rank_counts={3:0,4:0,5:0,6:0}
+    for draw in tested:
+        prior=[d for d in draws if d["round"]<draw["round"]]
+        if not prior:
+            continue
+        ticket=make_ticket(prior,"balanced")
+        hits=count_hits(ticket,draw)
+        total_hits+=hits
+        if hits>=3:
+            rank_counts[hits]=rank_counts.get(hits,0)+1
+    return {"draws":len(tested),"avg_hits":total_hits/len(tested),"rank_counts":rank_counts}
+
+def telegram_send(message):
     if not TOKEN or not CHAT_ID:
-        print("Telegram secrets missing; message not sent.")
-        return
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = json.dumps({"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}).encode()
-    req = Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-    with urlopen(req, timeout=20) as r:
-        result = json.loads(r.read().decode())
+        raise RuntimeError("TELEGRAM_TOKEN 또는 TELEGRAM_CHAT_ID GitHub Secret이 없습니다.")
+    import urllib.request
+    payload=json.dumps({"chat_id":CHAT_ID,"text":message,"parse_mode":"HTML","disable_web_page_preview":True}).encode()
+    req=Request(f"https://api.telegram.org/bot{TOKEN}/sendMessage",data=payload,headers={"Content-Type":"application/json"})
+    with urlopen(req,timeout=25) as r:
+        result=json.loads(r.read().decode())
     if not result.get("ok"):
-        raise RuntimeError("Telegram API rejected the message")
+        raise RuntimeError(f"Telegram 전송 실패: {result}")
+    print("Telegram sent")
 
-def format_daily(draws, s, bt):
-    latest = draws[-1]
-    hot = sorted(s["frequency"], key=lambda n: (-s["frequency"][n], n))[:8]
-    cold = sorted(s["frequency"], key=lambda n: (s["frequency"][n], n))[:8]
-    recent = sorted(s["recent30"], key=lambda n: (-s["recent30"][n], n))[:8]
-    rand = bt["strategies"]["random"]
-    msg = [
-        "📊 로또 6/45 일일 분석",
-        f"데이터: 1회~{latest['round']}회 ({latest['date']})",
-        "최근 당첨: " + " · ".join(map(str, latest["numbers"])) + f" | 보너스 {latest['bonus']}",
+def format_analysis(draws,tickets,bt):
+    latest=draws[-1]
+    freq,gaps,recent=get_stats(draws)
+    hot=sorted(freq,key=lambda n:freq[n],reverse=True)[:8]
+    cold=sorted(freq,key=lambda n:freq[n])[:8]
+    delayed=sorted(gaps,key=lambda n:gaps[n],reverse=True)[:8]
+    lines=[
+        "🎯 <b>SANI LOTTO ANALYZER</b>",
+        "━━━━━━━━━━━━━━━━━━",
+        f"📌 공식 최신 회차: <b>{latest['round']}회</b>",
+        f"📅 추첨일: {latest['date']}",
+        "🎱 당첨번호: "+" · ".join(map(str,latest["numbers"]))+f"  | 보너스 <b>{latest['bonus']}</b>",
+        f"📚 분석 데이터: 1~{latest['round']}회 ({len(draws):,}회)",
         "",
-        "누적 출현 상위: " + ", ".join(map(str, hot)),
-        "누적 출현 하위: " + ", ".join(map(str, cold)),
-        "최근 30회 상위: " + ", ".join(map(str, recent)),
+        "📊 <b>번호 통계</b>",
+        "🔥 누적 출현 상위: "+", ".join(f"{n}({freq[n]})" for n in hot),
+        "❄️ 누적 출현 하위: "+", ".join(f"{n}({freq[n]})" for n in cold),
+        "⏳ 장기 미출현: "+", ".join(f"{n}({gaps[n]}회)" for n in delayed),
         "",
-        f"워크포워드 백테스트: 최근 {bt.get('rounds_tested',0)}회",
-        f"무작위 기준 평균 적중: {rand['avg_hits']}개/게임",
-        f"무작위 기준 3개 이상 일치: {rand['tickets_with_3plus']}게임",
-        "",
-        "주의: 빈도·미출현 기간은 다음 추첨의 확률을 높인다는 증거가 아닙니다."
+        "🧪 <b>최근 구간 워크포워드 참고</b>"
     ]
-    return "\n".join(msg)
-
-def format_final(draws, s, bt, tickets):
-    latest = draws[-1]
-    next_round = latest["round"] + 1
-    lines = [f"🎯 로또 6/45 · {next_round}회 분석 조합", "━━━━━━━━━━━━━━"]
-    for i, t in enumerate(tickets, 1):
-        ns = t["numbers"]
-        lines.append(f"{i:02d}. " + " · ".join(f"{n:02d}" for n in ns) + f"  [{t['method']}]")
-    rand = bt["strategies"]["random"]
-    lines += [
-        "━━━━━━━━━━━━━━",
-        f"기준 데이터: 1~{latest['round']}회까지",
-        f"백테스트: 최근 {bt.get('rounds_tested',0)}회, 무작위 평균 적중 {rand['avg_hits']}개/게임",
-        "",
-        "중요: 모든 6개 조합의 1등 확률은 동일하게 1/8,145,060입니다.",
-        "이 조합은 통계 실험용 후보이며 당첨 예측·보장이 아닙니다. 예산을 정하고 무리하게 구매하지 마세요."
-    ]
+    if bt:
+        lines.append(f"검증 회차 {bt['draws']}회 | 게임당 평균 일치 {bt['avg_hits']:.2f}개")
+        lines.append(f"3개 이상 일치 {bt['rank_counts'].get(3,0)}회 | 4개 이상 {bt['rank_counts'].get(4,0)}회 | 5개 이상 {bt['rank_counts'].get(5,0)}회 | 6개 일치 {bt['rank_counts'].get(6,0)}회")
+    else:
+        lines.append("검증 데이터 부족")
+    lines.extend(["","🎲 <b>분석 추천 조합</b>"])
+    for i,t in enumerate(tickets,1):
+        lines.append(f"{i}. "+" · ".join(map(str,t["numbers"]))+f"  <i>({t['method']})</i>")
+    lines.extend(["","⚠️ 과거 통계는 다음 추첨 결과를 예측하지 못하며 모든 조합의 1등 확률은 같습니다.","📎 출처: 동행복권 회차별 결과 조회"])
     return "\n".join(lines)
 
 def main():
-    now = datetime.now(TZ_KST)
-    draws = sync_draws()
-    s = stats(draws)
-    bt = backtest(draws)
-    report = {"created_at": datetime.now(timezone.utc).isoformat(), "latest_round": draws[-1]["round"], "stats": s, "backtest": bt}
-    atomic_json(REPORT_FILE, report)
-    state = load_json(STATE_FILE, {"last_daily": None, "last_final_round": None})
-    daily_key = now.strftime("%Y-%m-%d")
-    final_round = draws[-1]["round"] + 1
-    is_final_window = now.weekday() == 5 and (now.hour >= 10)
-    if state.get("last_daily") != daily_key:
-        telegram_send(format_daily(draws, s, bt))
-        state["last_daily"] = daily_key
-    if is_final_window and state.get("last_final_round") != final_round:
-        tickets = generate_tickets(draws, 10, seed=int(now.strftime("%Y%m%d")) + final_round)
-        history = load_json(DATA / "recommendations.json", {"recommendations": []})
-        history["recommendations"].append({"target_round": final_round, "created_at": now.isoformat(), "tickets": tickets, "based_on_round": draws[-1]["round"]})
-        atomic_json(DATA / "recommendations.json", history)
-        telegram_send(format_final(draws, s, bt, tickets))
-        state["last_final_round"] = final_round
-    atomic_json(STATE_FILE, state)
-    print(f"OK: draws={len(draws)}, latest={draws[-1]['round']}, KST={now.isoformat()}")
+    print("="*42)
+    print("SANI LOTTO ANALYZER")
+    print("="*42)
+    draws=sync_draws()
+    state=read_json(STATE_FILE,{})
+    today=now().strftime("%Y-%m-%d")
+    latest=draws[-1]["round"]
+    tickets=generate_tickets(draws)
+    bt=backtest(draws)
+    print(f"Latest round={latest}; draws={len(draws)}; KST={now().isoformat()}")
 
-if __name__ == "__main__":
+    # 하루 한 번 분석 알림
+    if state.get("daily_sent")!=today:
+        telegram_send(format_analysis(draws,tickets,bt))
+        state["daily_sent"]=today
+        state["daily_round"]=latest
+        save_json(STATE_FILE,state)
+
+    # 토요일 오전 10시 이후, 최신 회차가 아직 당첨 결과가 반영되기 전이면
+    # 해당 주 추천을 한 번 발송한다. 추첨 후에는 다음 회차 분석에 사용.
+    current=now()
+    saturday=current.weekday()==5 and current.hour>=10
+    final_key=f"{current.strftime('%Y-%m-%d')}-{latest}"
+    if saturday and state.get("weekly_sent")!=final_key:
+        msg=[
+            "🏁 <b>SANI LOTTO WEEKLY PICKS</b>",
+            "━━━━━━━━━━━━━━━━━━",
+            f"📅 작성 시각: {current.strftime('%Y-%m-%d %H:%M')} KST",
+            f"📚 분석 기준: {latest}회까지의 공식 데이터",
+            "",
+            "🎯 <b>이번 주 추천 조합</b>"
+        ]
+        for i,t in enumerate(tickets,1):
+            msg.append(f"{i}. "+" · ".join(map(str,t["numbers"])))
+        msg.extend(["","⚠️ 추천 조합은 참고용이며 당첨을 보장하지 않습니다."])
+        telegram_send("\n".join(msg))
+        state["weekly_sent"]=final_key
+        save_json(STATE_FILE,state)
+
+    print("Completed successfully.")
+
+if __name__=="__main__":
     main()
