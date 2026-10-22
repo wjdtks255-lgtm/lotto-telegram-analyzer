@@ -3,8 +3,7 @@ name: Lotto 6/45 Telegram Analyzer
 on:
   workflow_dispatch:
   schedule:
-    # 매주 금요일 오전 9시 5분 KST (UTC 00:05)에 실행
-    - cron: "5 0 * * 5"
+    - cron: "5 0 * * 0-5"
 
 permissions:
   contents: write
@@ -20,6 +19,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
