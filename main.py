@@ -19,18 +19,24 @@ def get_json(url, attempts=4):
     for i in range(attempts):
         try:
             req = Request(url, headers=headers)
-            with urlopen(req, timeout=20) as r:
+            with urlopen(req, timeout=10) as r:
                 return json.loads(r.read().decode("utf-8"))
         except Exception:
             if i == attempts - 1:
                 raise
-            time.sleep(1.5 * (i + 1))
+            time.sleep(1.0 * (i + 1))
 
 def fetch_round(n):
     url = f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={n}"
-    d = get_json(url)
-    if d.get("returnValue") != "success":
+    try:
+        # 회차 탐색 시 존재하지 않는 미래 회차일 수 있으므로 재시도를 1회로 제한하여 빠르게 처리
+        d = get_json(url, attempts=1)
+    except Exception:
         return None
+        
+    if not isinstance(d, dict) or d.get("returnValue") != "success":
+        return None
+        
     nums = [int(d[f"drwtNo{i}"]) for i in range(1, 7)]
     bonus = int(d["bnusNo"])
     if len(set(nums)) != 6 or any(x < 1 or x > 45 for x in nums) or bonus in nums:
@@ -38,7 +44,6 @@ def fetch_round(n):
     return {"round": int(d["drwNo"]), "date": d["drwNoDate"], "numbers": sorted(nums), "bonus": bonus}
 
 def find_latest_round():
-    # Exponential search, then binary search; avoids requesting every round just to find the latest.
     lo, hi = 0, 1
     while fetch_round(hi) is not None:
         lo, hi = hi, hi * 2
@@ -68,14 +73,12 @@ def sync_draws():
     by_round = {int(d["round"]): d for d in old.get("draws", [])}
     latest = find_latest_round()
     missing = [n for n in range(1, latest + 1) if n not in by_round]
-    # Slow, polite requests. Data is committed to the repo so normal daily runs are incremental.
     for n in missing:
         d = fetch_round(n)
         if d:
             by_round[n] = d
         time.sleep(0.12)
     draws = [by_round[n] for n in sorted(by_round) if n <= latest]
-    # Reject gaps rather than silently backtesting incomplete data.
     expected = list(range(1, latest + 1))
     got = [d["round"] for d in draws]
     if got != expected:
@@ -157,13 +160,10 @@ def generate_tickets(draws, count=10, seed=None):
     return tickets
 
 def backtest(draws, window=200, tickets_per_draw=10):
-    # Walk-forward: for each target round, only earlier rounds are used.
-    # Compare the same number of tickets to independent uniform random tickets.
     if len(draws) < 3:
         return {"rounds": 0, "note": "Not enough data"}
     start = max(1, len(draws) - window)
     rng = random.Random(20261022)
-    rows = []
     strategies = ["balanced", "frequency", "recent", "overdue"]
     all_hits = {m: [] for m in strategies + ["random"]}
     prize_counts = {m: {str(k): 0 for k in range(3, 7)} for m in all_hits}
