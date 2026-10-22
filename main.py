@@ -29,7 +29,6 @@ def get_json(url, attempts=4):
 def fetch_round(n):
     url = f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={n}"
     try:
-        # 회차 탐색 시 존재하지 않는 미래 회차일 수 있으므로 재시도를 1회로 제한하여 빠르게 처리
         d = get_json(url, attempts=1)
     except Exception:
         return None
@@ -44,6 +43,10 @@ def fetch_round(n):
     return {"round": int(d["drwNo"]), "date": d["drwNoDate"], "numbers": sorted(nums), "bonus": bonus}
 
 def find_latest_round():
+    # 1회차 데이터부터 가져올 수 있는지 먼저 확인하여 빈 리스트 에러 방지
+    if fetch_round(1) is None:
+        raise RuntimeError("동행복권 API에 접근할 수 없거나 네트워크 응답이 없습니다.")
+        
     lo, hi = 0, 1
     while fetch_round(hi) is not None:
         lo, hi = hi, hi * 2
@@ -79,6 +82,8 @@ def sync_draws():
             by_round[n] = d
         time.sleep(0.12)
     draws = [by_round[n] for n in sorted(by_round) if n <= latest]
+    if not draws:
+        raise RuntimeError("수집된 로또 당첨 데이터가 없습니다.")
     expected = list(range(1, latest + 1))
     got = [d["round"] for d in draws]
     if got != expected:
