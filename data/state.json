@@ -1,1 +1,139 @@
-{"last_daily": "2026-10-22", "last_final_round": null, "daily_sent": "2026-10-22"}
+{
+  "last_daily": "2026-10-22",
+  "last_final_round": null,
+  "daily_sent": "2026-10-22",
+  "version": 2,
+  "analysis_sent_date": "2026-10-23",
+  "pending_results": [
+    {
+      "target_round": 1247,
+      "created_at": "2026-10-23T09:52:23+09:00",
+      "picks": [
+        {
+          "method": "균등 무작위 분산",
+          "numbers": [
+            9,
+            13,
+            25,
+            30,
+            34,
+            36
+          ]
+        },
+        {
+          "method": "균등 무작위 분산",
+          "numbers": [
+            8,
+            20,
+            21,
+            24,
+            33,
+            36
+          ]
+        },
+        {
+          "method": "균등 무작위 분산",
+          "numbers": [
+            11,
+            21,
+            28,
+            30,
+            31,
+            45
+          ]
+        },
+        {
+          "method": "균등 무작위 분산",
+          "numbers": [
+            7,
+            22,
+            38,
+            39,
+            40,
+            41
+          ]
+        },
+        {
+          "method": "균등 무작위 분산",
+          "numbers": [
+            3,
+            10,
+            16,
+            35,
+            37,
+            42
+          ]
+        },
+        {
+          "method": "균등 무작위 분산",
+          "numbers": [
+            2,
+            4,
+            14,
+            18,
+            26,
+            43
+          ]
+        },
+        {
+          "method": "균등 무작위 분산",
+          "numbers": [
+            5,
+            17,
+            23,
+            26,
+            32,
+            39
+          ]
+        },
+        {
+          "method": "균등 무작위 분산",
+          "numbers": [
+            12,
+            14,
+            15,
+            19,
+            23,
+            29
+          ]
+        },
+        {
+          "method": "균등 무작위 분산",
+          "numbers": [
+            6,
+            7,
+            8,
+            27,
+            28,
+            44
+          ]
+        },
+        {
+          "method": "균등 무작위 분산",
+          "numbers": [
+            1,
+            20,
+            22,
+            37,
+            43,
+            45
+          ]
+        }
+      ]
+    }
+  ],
+  "checked_rounds": [],
+  "results_stats": {
+    "counts": {
+      "0": 0,
+      "1": 0,
+      "2": 0,
+      "3": 0,
+      "4": 0,
+      "5": 0
+    },
+    "total_tickets": 0,
+    "checked_draws": 0,
+    "history": []
+  }
+}
