@@ -3,7 +3,8 @@ name: Lotto 6/45 Telegram Analyzer
 on:
   workflow_dispatch:
   schedule:
-    - cron: "5 0 * * 0-5"
+    # 매주 일요일~금요일 오후 6시 (KST 기준) / UTC 오전 9시
+    - cron: "0 9 * * 0-5"
 
 permissions:
   contents: write
