@@ -68,7 +68,6 @@ def load_json(path, default):
         with path.open("r", encoding="utf-8") as f:
             value = json.load(f)
     except (OSError, json.JSONDecodeError) as exc:
-        # Do not silently replace a corrupted history/state file with an empty one.
         raise RuntimeError(f"상태/데이터 파일을 읽을 수 없습니다: {path}: {exc}") from exc
     return value
 
@@ -91,7 +90,6 @@ def load_state():
     state = load_json(STATE_FILE, default_state())
     if not isinstance(state, dict):
         raise RuntimeError("상태 파일 형식이 올바르지 않습니다.")
-    # Keep fields from older versions while adding the new transparent schema.
     defaults = default_state()
     for key, value in defaults.items():
         state.setdefault(key, value)
@@ -251,17 +249,13 @@ def historical_stats(draws):
 
 
 def lottery_odds():
-    """Exact combinatorial odds for one 6-number ticket in a 6/45 draw."""
     total = comb(45, 6)
     exact = {
         matches: comb(6, matches) * comb(39, 6 - matches) / total
         for matches in range(7)
     }
-    # Rank 2: exactly five main numbers plus the bonus number.
     rank2 = 6 / total
-    # Rank 3: exactly five main numbers, excluding the bonus.
     rank3 = (comb(6, 5) * 38) / total
-    # Rank 4: exactly four main numbers; rank 5: exactly three.
     rank4 = (comb(6, 4) * comb(39, 2)) / total
     rank5 = (comb(6, 3) * comb(39, 3)) / total
     return {
@@ -277,16 +271,9 @@ def lottery_odds():
 
 
 def make_diversified_picks(count=PICK_COUNT):
-    """Create distinct random tickets with balanced coverage across the set.
-
-    For 10 tickets, each of 45 numbers appears once or twice in the portfolio
-    (60 slots total). This is diversification, not an odds-enhancement method.
-    """
     if count < 1:
         raise ValueError("조합 수는 1 이상이어야 합니다.")
     if count * 6 < 45:
-        # For small sets, use distinct uniform random tickets; full 1/2 coverage
-        # is only possible when the total number of slots is at least 45.
         rng = secrets.SystemRandom()
         picks = set()
         while len(picks) < count:
@@ -459,17 +446,23 @@ def check_pending_results(draws, state):
     checked = set(state.get("checked_rounds", []))
     stats = state["results_stats"]
 
-    for item in list(pending):
+    processed_targets = set()
+    new_pending = []
+
+    for item in pending:
         target = int(item["target_round"])
-        if target in checked:
-            pending.remove(item)
+        # 이미 처리되었거나 체크된 회차면 중복 발송을 막기 위해 펜딩에서 제거
+        if target in checked or target in processed_targets:
             changed = True
             continue
+
         draw = by_round.get(target)
         if draw is None:
-            log.info("%s회 결과가 아직 데이터에 없습니다.", target)
+            # 아직 데이터가 업로드되지 않았으면 대기 목록에 유지
+            new_pending.append(item)
             continue
 
+        # 결과 채점 및 통계 반영
         for pick in item["picks"]:
             rank, _ = rank_ticket(pick["numbers"], draw)
             stats["counts"][str(rank)] += 1
@@ -483,17 +476,17 @@ def check_pending_results(draws, state):
             "picks": item["picks"],
         })
         stats["history"] = stats["history"][-MAX_HISTORY:]
+        
         checked.add(target)
-        state["checked_rounds"] = sorted(checked)[-500:]
-
-        # Send before removing/saving the pending record. If delivery fails,
-        # the result remains pending and can be retried on the next run.
-        send_telegram(format_result(draw, item["picks"], stats))
-        pending.remove(item)
+        processed_targets.add(target)
         changed = True
-        log.info("%s회 조합 결과 집계 완료", target)
 
-    state["pending_results"] = pending
+        # 당첨 결과 알림은 딱 1번만 전송
+        send_telegram(format_result(draw, item["picks"], stats))
+        log.info("%s회 조합 당첨 결과 즉시 확인 및 발송 완료 (중복 방지 적용)", target)
+
+    state["pending_results"] = new_pending
+    state["checked_rounds"] = sorted(checked)[-500:]
     if changed:
         save_json(STATE_FILE, state)
     return changed
@@ -504,35 +497,45 @@ def run():
     weekday = current.weekday()  # Monday=0 ... Sunday=6
     state = load_state()
 
-    # Sunday: check results for previously published picks.
-    if weekday == 6:
-        if not state.get("pending_results"):
-            log.info("일요일: 확인할 추천 조합 결과가 없습니다.")
-            return
-        draws = sync_draws()
-        check_pending_results(draws, state)
-        return
+    # 1. 최신 데이터 동기화
+    draws = sync_draws()
 
-    # Saturday: no routine message; draw results are checked on Sunday.
+    # 2. 대기 중인 추천 조합 당첨 결과가 있다면 즉시 체크하여 단 1회만 발송
+    check_pending_results(draws, state)
+
+    # 토요일: 정기 통계/조합 분석 메시지 발송 없음
     if weekday == 5:
         log.info("토요일: 정기 발송 없음")
         return
 
     today = current.strftime("%Y-%m-%d")
-    if state.get("analysis_sent_date") == today:
-        log.info("오늘 분석은 이미 전송했습니다.")
+    
+    # 수동 실행(workflow_dispatch) 여부 확인
+    event_name = os.getenv("GITHUB_EVENT_NAME", "").strip()
+    is_manual = (event_name == "workflow_dispatch")
+
+    # 수동 실행이 아닌 경우 당일 분석 중복 발송 차단
+    if not is_manual and state.get("analysis_sent_date") == today:
+        log.info("오늘 분석 리포트는 이미 전송했습니다.")
         return
 
-    draws = sync_draws()
+    if weekday == 6:
+        log.info("일요일: 당첨 결과 확인 처리 완료")
+        return
+
     analysis = format_analysis(draws)
     is_friday = weekday == 4
 
     if is_friday:
+        # 1) 통계 분석 메시지 전송
+        send_telegram(analysis)
+        
+        # 2) 번호 조합 메시지 별도 전송 (금요일에만)
         picks = make_diversified_picks(PICK_COUNT)
         target_round = draws[-1]["round"] + 1
         picks_message = format_picks(draws, picks, target_round)
-        # Send first; only record a sent recommendation after Telegram confirms.
-        send_telegram(analysis + "\n\n" + picks_message)
+        send_telegram(picks_message)
+        
         state.setdefault("pending_results", [])
         if not any(int(row.get("target_round", 0)) == target_round
                    for row in state["pending_results"]):
@@ -542,11 +545,15 @@ def run():
                 "picks": picks,
             })
     else:
+        # 월~목요일: 분석 통계만 전송
         send_telegram(analysis)
 
-    state["analysis_sent_date"] = today
+    # 자동 실행일 때만 당일 발송 완료 날짜 기록
+    if not is_manual:
+        state["analysis_sent_date"] = today
+        
     save_json(STATE_FILE, state)
-    log.info("분석 전송 완료 (%s)", "추천 조합 포함" if is_friday else "통계만")
+    log.info("분석 전송 완료 (%s, 실행 방식: %s)", "추천 조합 포함" if is_friday else "통계만", "수동" if is_manual else "자동")
 
 
 if __name__ == "__main__":
