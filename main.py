@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""SANI LOTTO — Enhanced Smart Strategy Engine.
+"""SANI LOTTO — Strict Single-Send Schedule Controller.
 
-Generates highly optimized, multi-filtered lottery combinations based on 
-historical statistics, balance filters (odd/even, sum ranges, decade spreads),
-and weighted random sampling to maximize real-world hit potential.
+- Mon-Fri 18:00 KST: General analysis report (Exactly once per day).
+- Fri 18:30 KST: Recommended picks (Exactly once on Friday).
+- Draw Results: Instant check and single-send grading as soon as results are published.
 """
 
 import json
@@ -48,8 +48,9 @@ def stamp():
 
 def default_state():
     return {
-        "version": 2,
+        "version": 4,
         "analysis_sent_date": None,
+        "picks_sent_date": None,
         "pending_results": [],
         "checked_rounds": [],
         "results_stats": {
@@ -93,7 +94,7 @@ def load_state():
     defaults = default_state()
     for key, value in defaults.items():
         state.setdefault(key, value)
-    state["version"] = 2
+    state["version"] = 4
     state.setdefault("pending_results", [])
     state.setdefault("checked_rounds", [])
     stats = state.setdefault("results_stats", defaults["results_stats"])
@@ -248,93 +249,49 @@ def historical_stats(draws):
     return frequency, recent, gap
 
 
-def lottery_odds():
-    total = comb(45, 6)
-    exact = {
-        matches: comb(6, matches) * comb(39, 6 - matches) / total
-        for matches in range(7)
-    }
-    rank2 = 6 / total
-    rank3 = (comb(6, 5) * 38) / total
-    rank4 = (comb(6, 4) * comb(39, 2)) / total
-    rank5 = (comb(6, 3) * comb(39, 3)) / total
-    return {
-        "total_combinations": total,
-        "exact_matches": exact,
-        "rank1": 1 / total,
-        "rank2": rank2,
-        "rank3": rank3,
-        "rank4": rank4,
-        "rank5": rank5,
-        "any_prize": rank2 + rank3 + rank4 + rank5 + exact[6],
-    }
-
-
 def is_valid_smart_ticket(ticket):
-    """강화된 필터링 규칙 적용"""
-    # 1. 총합 구간 (100 ~ 175)
     total_sum = sum(ticket)
     if not (100 <= total_sum <= 175):
         return False
-
-    # 2. 홀짝 비율 (2:4, 3:3, 4:2)
     odds = sum(1 for n in ticket if n % 2 != 0)
     if odds not in (2, 3, 4):
         return False
-
-    # 3. 고저 비율 (1~22 : 23~45)
     highs = sum(1 for n in ticket if n >= 23)
     if highs not in (2, 3, 4):
         return False
-
-    # 4. 3개 이상 연번 방지 (예: 1, 2, 3 금지)
     sorted_t = sorted(ticket)
     for i in range(len(sorted_t) - 2):
         if sorted_t[i+1] == sorted_t[i] + 1 and sorted_t[i+2] == sorted_t[i] + 2:
             return False
-
-    # 5. 번호대 분포 (최소 3개 이상의 10번대 구간 포함)
     decades = set((n - 1) // 10 for n in ticket)
     if len(decades) < 3:
         return False
-
     return True
 
 
 def make_diversified_picks(draws, count=PICK_COUNT):
-    """통계 필터링 기반 스마트 조합 추출 엔진"""
     frequency, recent, gap = historical_stats(draws)
     rng = secrets.SystemRandom()
-
-    # 번호별 가중치 계산 (누적 빈도 + 최근 30회 빈도 + 적절한 미출현 가중치)
     weights = {}
     for n in range(1, 46):
         w = (frequency[n] * 0.4) + (recent[n] * 2.0) + (min(gap[n], 15) * 0.5)
         weights[n] = max(w, 1.0)
-
     population = list(range(1, 46))
     prob_weights = [weights[n] for n in population]
-
     picks = set()
     max_attempts = 100_000
 
     for _ in range(max_attempts):
         if len(picks) >= count:
             break
-        
-        # 가중 무작위 추출로 6개 선택
         chosen = set()
         while len(chosen) < 6:
             pick_num = rng.choices(population, weights=prob_weights, k=1)[0]
             chosen.add(pick_num)
-        
         ticket = tuple(sorted(chosen))
-
-        # 강화된 필터 조건 검증
         if is_valid_smart_ticket(ticket):
             picks.add(ticket)
 
-    # 예외 상황 대비 (필터링 조건이 너무 빡빡할 경우 보충)
     while len(picks) < count:
         ticket = tuple(sorted(rng.sample(range(1, 46), 6)))
         if is_valid_smart_ticket(ticket):
@@ -387,7 +344,6 @@ def format_analysis(draws):
     hot = sorted(frequency, key=lambda n: (frequency[n], recent[n]), reverse=True)[:10]
     cold = sorted(frequency, key=lambda n: (frequency[n], recent[n]))[:10]
     latest_absent = sorted(gap, key=lambda n: gap[n], reverse=True)[:10]
-    odds = lottery_odds()
 
     lines = [
         "📊 <b>SANI LOTTO — 스마트 통계 분석 리포트</b>",
@@ -404,11 +360,6 @@ def format_analysis(draws):
         "",
         "⏳ <b>최장 미출현 번호 상위 10</b>",
         ", ".join(f"{n}({gap[n]}회 전)" for n in latest_absent),
-        "",
-        "🎯 <b>알고리즘 필터 적용 기준</b>",
-        "• 총합 범위: 100 ~ 175 (역대 1등 황금 구간)",
-        "• 홀짝/고저 균형비: 2:4, 3:3, 4:2 구성",
-        "• 3연번 이상 배제 & 3개 이상 번호대 분산",
     ]
     return "\n".join(lines)
 
@@ -462,7 +413,7 @@ def format_result(draw, picks, results):
         f"📌 대조 회차: <b>{draw['round']}회</b> ({draw['date']})",
         "🎱 실제 당첨 번호: " + " · ".join(map(str, draw["numbers"])) + f" | 보너스 {draw['bonus']}",
         "",
-        f"📊 누적 집계: {results['checked_draws']}회 / 총 {total}게임",
+        f"📊 누적 집계: {results['checked_draws']}회차 / 총 {total}게임",
         f"🥇 1등: {counts['1']} | 🥈 2등: {counts['2']} | 🥉 3등: {counts['3']}",
         f"🎖️ 4등: {counts['4']} | 🎖️ 5등: {counts['5']} | ❌ 미당첨: {counts['0']}",
         f"🎯 5등 이상 당첨률: {prize_tickets}/{total} ({(100 * prize_tickets / total) if total else 0:.2f}%)",
@@ -490,6 +441,7 @@ def check_pending_results(draws, state):
 
     for item in pending:
         target = int(item["target_round"])
+        # 이미 체크되었거나 처리된 회차면 중복 방지를 위해 제외
         if target in checked or target in processed_targets:
             changed = True
             continue
@@ -517,8 +469,9 @@ def check_pending_results(draws, state):
         processed_targets.add(target)
         changed = True
 
+        # 당첨 번호 결과 알림은 해당 회차당 단 1번만 전송
         send_telegram(format_result(draw, item["picks"], stats))
-        log.info("%s회 당첨 결과 대조 완료 및 발송", target)
+        log.info("%s회 당첨 결과 즉시 확인 및 전송 완료 (단 1회 발송 보장)", target)
 
     state["pending_results"] = new_pending
     state["checked_rounds"] = sorted(checked)[-500:]
@@ -529,35 +482,39 @@ def check_pending_results(draws, state):
 
 def run():
     current = now_kst()
-    weekday = current.weekday()
+    weekday = current.weekday()  # Mon=0 ... Sun=6
     state = load_state()
 
+    # 1. 당첨번호 결과 즉시 확인 및 대조 (데이터가 올라오는 즉시 단 1회 발송)
     draws = sync_draws()
     check_pending_results(draws, state)
 
+    # 토요일은 정기 분석 발송 없음 (결과 확인은 위에서 즉시 처리됨)
     if weekday == 5:
-        log.info("토요일: 정기 발송 없음")
+        log.info("토요일: 정기 분석 발송 없음")
         return
 
     today = current.strftime("%Y-%m-%d")
     event_name = os.getenv("GITHUB_EVENT_NAME", "").strip()
     is_manual = (event_name == "workflow_dispatch")
 
-    if not is_manual and state.get("analysis_sent_date") == today:
-        log.info("오늘 분석 리포트는 이미 전송했습니다.")
-        return
-
-    if weekday == 6:
-        log.info("일요일: 당첨 결과 확인 처리 완료")
-        return
-
     analysis = format_analysis(draws)
-    is_friday = weekday == 4
+    is_friday = (weekday == 4)
+    current_hour = current.hour
+    current_minute = current.minute
 
-    if is_friday:
+    # 2. 월~금 오후 6시 정각 (일반 통계 분석 리포트 - 하루에 딱 1번만)
+    analysis_sent = state.get("analysis_sent_date") == today
+    if (is_manual or (18 <= current_hour < 19)) and not analysis_sent:
         send_telegram(analysis)
-        
-        # 강화된 스마트 필터 알고리즘으로 조합 생성
+        if not is_manual:
+            state["analysis_sent_date"] = today
+        save_json(STATE_FILE, state)
+        log.info("일일 통계 분석 리포트 발송 완료 (오늘 최초 1회)")
+
+    # 3. 금요일 오후 6시 30분 이후 (추천 번호 조합 별도 발송 - 금요일에 딱 1번만)
+    picks_sent = state.get("picks_sent_date") == today
+    if is_friday and (is_manual or (current_hour == 18 and current_minute >= 30) or current_hour > 18) and not picks_sent:
         picks = make_diversified_picks(draws, PICK_COUNT)
         target_round = draws[-1]["round"] + 1
         picks_message = format_picks(draws, picks, target_round)
@@ -571,14 +528,11 @@ def run():
                 "created_at": stamp(),
                 "picks": picks,
             })
-    else:
-        send_telegram(analysis)
-
-    if not is_manual:
-        state["analysis_sent_date"] = today
-        
-    save_json(STATE_FILE, state)
-    log.info("발송 완료 (%s)", "스마트 필터링 조합 포함" if is_friday else "분석만")
+            
+        if not is_manual:
+            state["picks_sent_date"] = today
+        save_json(STATE_FILE, state)
+        log.info("금요일 추천 번호 조합 별도 발송 완료 (금요일 최초 1회)")
 
 
 if __name__ == "__main__":
