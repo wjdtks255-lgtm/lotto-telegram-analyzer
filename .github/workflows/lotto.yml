@@ -1,42 +1,36 @@
-name: Lotto 6/45 Telegram Analyzer
+name: Sani Lotto Bot
 
 on:
-  workflow_dispatch:
   schedule:
-    # 매주 일요일~금요일 오후 6시 (KST 기준) / UTC 오전 9시
-    - cron: "0 9 * * 0-5"
-
-permissions:
-  contents: write
-
-concurrency:
-  group: lotto-analyzer
-  cancel-in-progress: false
+    - cron: '0,30 18 * * 0-5'
+  workflow_dispatch:
 
 jobs:
-  analyze:
+  run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    permissions:
+      contents: write  # 저장소 쓰기 권한 허용
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Run analyzer
+          python-version: '3.10'
+
+      - name: Run Sani Lotto Script
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: python main.py
-      - name: Commit data and reports
+
+      - name: Commit and push updated state
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data/
-          if ! git diff --cached --quiet; then
-            git commit -m "Update lotto data and reports"
-            git push
-          fi
+          git diff --staged --quiet || git commit -m "Auto-update lotto state and data [skip ci]"
+          git push
