@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """SANI LOTTO — Strict Single-Send Schedule Controller.
 
-- Mon-Fri 18:00 KST: General analysis report (Exactly once per day).
-- Fri 18:30 KST: Recommended picks (Exactly once on Friday).
+- Mon-Fri 18:00 ~ 18:20 KST: General analysis report (Exactly once per day).
+- Fri 18:25 ~ KST: Recommended picks (Exactly once on Friday).
 - Draw Results: Instant check and single-send grading as soon as results are published.
 """
 
@@ -48,7 +48,7 @@ def stamp():
 
 def default_state():
     return {
-        "version": 4,
+        "version": 5,
         "analysis_sent_date": None,
         "picks_sent_date": None,
         "pending_results": [],
@@ -94,7 +94,7 @@ def load_state():
     defaults = default_state()
     for key, value in defaults.items():
         state.setdefault(key, value)
-    state["version"] = 4
+    state["version"] = 5
     state.setdefault("pending_results", [])
     state.setdefault("checked_rounds", [])
     stats = state.setdefault("results_stats", defaults["results_stats"])
@@ -441,7 +441,6 @@ def check_pending_results(draws, state):
 
     for item in pending:
         target = int(item["target_round"])
-        # 이미 체크되었거나 처리된 회차면 중복 방지를 위해 제외
         if target in checked or target in processed_targets:
             changed = True
             continue
@@ -469,9 +468,8 @@ def check_pending_results(draws, state):
         processed_targets.add(target)
         changed = True
 
-        # 당첨 번호 결과 알림은 해당 회차당 단 1번만 전송
         send_telegram(format_result(draw, item["picks"], stats))
-        log.info("%s회 당첨 결과 즉시 확인 및 전송 완료 (단 1회 발송 보장)", target)
+        log.info("%s회 당첨 결과 즉시 확인 및 전송 완료", target)
 
     state["pending_results"] = new_pending
     state["checked_rounds"] = sorted(checked)[-500:]
@@ -485,11 +483,10 @@ def run():
     weekday = current.weekday()  # Mon=0 ... Sun=6
     state = load_state()
 
-    # 1. 당첨번호 결과 즉시 확인 및 대조 (데이터가 올라오는 즉시 단 1회 발송)
+    # 1. 당첨번호 결과 즉시 확인 및 대조
     draws = sync_draws()
     check_pending_results(draws, state)
 
-    # 토요일은 정기 분석 발송 없음 (결과 확인은 위에서 즉시 처리됨)
     if weekday == 5:
         log.info("토요일: 정기 분석 발송 없음")
         return
@@ -503,18 +500,18 @@ def run():
     current_hour = current.hour
     current_minute = current.minute
 
-    # 2. 월~금 오후 6시 정각 (일반 통계 분석 리포트 - 하루에 딱 1번만)
+    # 2. 월~금 오후 6시 정각 분석 리포트 (18시 0분 ~ 20분 사이에만 하루 1회 엄격히 발송)
     analysis_sent = state.get("analysis_sent_date") == today
-    if (is_manual or (18 <= current_hour < 19)) and not analysis_sent:
+    if (is_manual or (current_hour == 18 and current_minute < 20)) and not analysis_sent:
         send_telegram(analysis)
         if not is_manual:
             state["analysis_sent_date"] = today
         save_json(STATE_FILE, state)
-        log.info("일일 통계 분석 리포트 발송 완료 (오늘 최초 1회)")
+        log.info("일일 통계 분석 리포트 발송 완료 (18시 정각 타임)")
 
-    # 3. 금요일 오후 6시 30분 이후 (추천 번호 조합 별도 발송 - 금요일에 딱 1번만)
+    # 3. 금요일 오후 6시 30분 추천 조합 발송 (18시 25분 이후에만 금요일 1회 발송)
     picks_sent = state.get("picks_sent_date") == today
-    if is_friday and (is_manual or (current_hour == 18 and current_minute >= 30) or current_hour > 18) and not picks_sent:
+    if is_friday and (is_manual or (current_hour == 18 and current_minute >= 25) or current_hour > 18) and not picks_sent:
         picks = make_diversified_picks(draws, PICK_COUNT)
         target_round = draws[-1]["round"] + 1
         picks_message = format_picks(draws, picks, target_round)
@@ -532,7 +529,7 @@ def run():
         if not is_manual:
             state["picks_sent_date"] = today
         save_json(STATE_FILE, state)
-        log.info("금요일 추천 번호 조합 별도 발송 완료 (금요일 최초 1회)")
+        log.info("금요일 추천 번호 조합 별도 발송 완료 (18시 30분 타임)")
 
 
 if __name__ == "__main__":
