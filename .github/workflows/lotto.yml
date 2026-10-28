@@ -1,15 +1,14 @@
-name: Sani Lotto Bot
+name: Lotto Telegram Analyzer
 
 on:
   schedule:
-    - cron: '0,30 18 * * 0-5'
+    # 매주 월요일 오후 6시 (KST 기준 09:00 UTC)에만 1회 실행
+    - cron: '0 9 * * 1'
   workflow_dispatch:
 
 jobs:
-  run-bot:
+  run-lotto:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # 저장소 쓰기 권한 허용
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -19,18 +18,13 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Run Sani Lotto Script
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
-        run: python main.py
-
-      - name: Commit and push updated state
+      - name: Install dependencies
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/
-          git diff --staged --quiet || git commit -m "Auto-update lotto state and data [skip ci]"
-          git push
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run Lotto Analyzer
+        env:
+          LOTTO_TELEGRAM_TOKEN: ${{ secrets.LOTTO_TELEGRAM_TOKEN }}
+          LOTTO_TELEGRAM_CHAT_ID: ${{ secrets.LOTTO_TELEGRAM_CHAT_ID }}
+        run: python lotto.py  # 실행하시는 메인 파이썬 파일명으로 확인해주세요
