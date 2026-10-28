@@ -2,8 +2,12 @@ name: Lotto Telegram Analyzer
 
 on:
   schedule:
-    # 매주 월요일 오후 6시 (KST 기준 09:00 UTC)에만 1회 실행
+    # 월요일 오후 6시 KST (UTC 09:00 Mon) - 스마트 통계 분석 리포트
     - cron: '0 9 * * 1'
+    # 금요일 오후 6시 KST (UTC 09:00 Fri) - 추천 번호 조합 10선
+    - cron: '0 9 * * 5'
+    # 일요일 오후 1시 KST (UTC 04:00 Sun) - 당첨 결과 & 전적 통계
+    - cron: '0 4 * * 0'
   workflow_dispatch:
 
 jobs:
@@ -23,8 +27,8 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run Lotto Analyzer
+      - name: Run Lotto Notifier
         env:
           LOTTO_TELEGRAM_TOKEN: ${{ secrets.LOTTO_TELEGRAM_TOKEN }}
           LOTTO_TELEGRAM_CHAT_ID: ${{ secrets.LOTTO_TELEGRAM_CHAT_ID }}
-        run: python lotto.py  # 실행하시는 메인 파이썬 파일명으로 확인해주세요
+        run: python lotto.py
