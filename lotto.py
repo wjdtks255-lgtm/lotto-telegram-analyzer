@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lotto 6/45 Telegram Analyzer & Notifier (Fixed/Exclude Upgrade)
+"""Lotto 6/45 Telegram Analyzer & Notifier (Fixed/Exclude Upgrade & Layout Fixed)
 
 Schedule Logic:
 - Monday 18:00 KST: Smart Statistical Report
@@ -62,17 +62,14 @@ def generate_combinations(num_sets=10):
         if needed_count < 0:
             break
             
-        # 풀에서 남은 개수만큼 랜덤 선택
         extra = random.sample([p for p in pool if p not in fixed], needed_count)
         combo = sorted(fixed + extra)
         
-        # 합계 필터 조건 (예: 100 ~ 170 사이의 합계만 허용하여 너무 치우친 조합 방지)
         total = sum(combo)
         if 100 <= total <= 170:
             if combo not in combinations:
                 combinations.append(combo)
                 
-    # 만약 조건에 걸려 다 못 채웠을 경우 안전 장치
     while len(combinations) < num_sets:
         extra = random.sample([p for p in pool if p not in fixed], 6 - len(fixed))
         combo = sorted(fixed + extra)
@@ -96,10 +93,12 @@ def get_monday_report():
 
 def get_friday_report():
     combos = generate_combinations(10)
+    symbols = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"]
+    
     lines = []
-    for idx, combo in enumerate(combos, 1):
+    for idx, combo in enumerate(combos):
         formatted_combo = " · ".join(f"{n:02d}" for n in combo)
-        lines.append(f"{idx}️⃣ {formatted_combo}")
+        lines.append(f"{symbols[idx]} {formatted_combo}")
         
     combos_text = "\n".join(lines)
     
