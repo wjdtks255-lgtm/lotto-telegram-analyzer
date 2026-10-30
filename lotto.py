@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lotto 6/45 Telegram Analyzer & Notifier
+"""Lotto 6/45 Telegram Analyzer & Notifier (Fixed/Exclude Upgrade)
 
 Schedule Logic:
 - Monday 18:00 KST: Smart Statistical Report
@@ -9,12 +9,23 @@ Schedule Logic:
 
 import os
 import json
+import random
 import urllib.request
 from datetime import datetime, timezone, timedelta
 
 KST = timezone(timedelta(hours=9))
 TOKEN = os.getenv("LOTTO_TELEGRAM_TOKEN", "").strip()
 CHAT_ID = os.getenv("LOTTO_TELEGRAM_CHAT_ID", "").strip()
+
+# ==========================================
+# 📌 사용자 정의 고정수 및 제외수 설정 영역
+# ==========================================
+# 반드시 포함하고 싶은 번호 (예: [7, 15] / 없으면 빈 리스트 [])
+FIXED_NUMBERS = []
+
+# 완전히 제외할 번호 (예: [4, 13, 22] / 없으면 빈 리스트 [])
+EXCLUDE_NUMBERS = []
+# ==========================================
 
 def now_kst():
     return datetime.now(KST)
@@ -37,8 +48,40 @@ def send_telegram(message):
     except Exception as e:
         print("Telegram send failed:", e)
 
+def generate_combinations(num_sets=10):
+    """고정수와 제외수를 반영하여 6개 번호 조합을 생성하는 함수"""
+    pool = [i for i in range(1, 46) if i not in EXCLUDE_NUMBERS]
+    fixed = [n for n in FIXED_NUMBERS if 1 <= n <= 45 and n not in EXCLUDE_NUMBERS]
+    
+    combinations = []
+    attempts = 0
+    
+    while len(combinations) < num_sets and attempts < 1000:
+        attempts += 1
+        needed_count = 6 - len(fixed)
+        if needed_count < 0:
+            break
+            
+        # 풀에서 남은 개수만큼 랜덤 선택
+        extra = random.sample([p for p in pool if p not in fixed], needed_count)
+        combo = sorted(fixed + extra)
+        
+        # 합계 필터 조건 (예: 100 ~ 170 사이의 합계만 허용하여 너무 치우친 조합 방지)
+        total = sum(combo)
+        if 100 <= total <= 170:
+            if combo not in combinations:
+                combinations.append(combo)
+                
+    # 만약 조건에 걸려 다 못 채웠을 경우 안전 장치
+    while len(combinations) < num_sets:
+        extra = random.sample([p for p in pool if p not in fixed], 6 - len(fixed))
+        combo = sorted(fixed + extra)
+        if combo not in combinations:
+            combinations.append(combo)
+            
+    return combinations
+
 def get_monday_report():
-    # 월요일 오후 6시: 통계 분석 리포트
     return (
         "📊 <b>SANI LOTTO — 스마트 통계 분석 리포트</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
@@ -52,26 +95,27 @@ def get_monday_report():
     )
 
 def get_friday_report():
-    # 금요일 오후 6시: 추천 번호 조합 (10개)
+    combos = generate_combinations(10)
+    lines = []
+    for idx, combo in enumerate(combos, 1):
+        formatted_combo = " · ".join(f"{n:02d}" for n in combo)
+        lines.append(f"{idx}️⃣ {formatted_combo}")
+        
+    combos_text = "\n".join(lines)
+    
+    settings_info = ""
+    if FIXED_NUMBERS or EXCLUDE_NUMBERS:
+        settings_info = f"\n⚙️ <i>[고정수: {FIXED_NUMBERS} | 제외수: {EXCLUDE_NUMBERS}]</i>\n"
+
     return (
         "🎯 <b>SANI LOTTO — 이번 주 추천 번호 조합 (10선)</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "📌 엄선된 필터링 조건(합계/홀짝/연속번호)이 적용된 추천 조합입니다.\n\n"
-        "1️⃣ 05 · 12 · 18 · 27 · 34 · 40\n"
-        "2️⃣ 08 · 13 · 21 · 30 · 37 · 45\n"
-        "3️⃣ 03 · 17 · 22 · 29 · 33 · 41\n"
-        "4️⃣ 09 · 14 · 25 · 32 · 38 · 42\n"
-        "5️⃣ 02 · 15 · 23 · 35 · 39 · 45\n"
-        "6️⃣ 04 · 11 · 19 · 26 · 31 · 44\n"
-        "7️⃣ 07 · 16 · 20 · 28 · 36 · 43\n"
-        "8️⃣ 01 · 10 · 18 · 24 · 33 · 39\n"
-        "9️⃣ 06 · 13 · 22 · 27 · 35 · 42\n"
-        "🔟 05 · 14 · 21 · 30 · 38 · 45\n\n"
+        f"📌 엄선된 필터링 조건이 적용된 추천 조합입니다.{settings_info}\n\n"
+        f"{combos_text}\n\n"
         "<i>※ 행운을 빕니다!</i>"
     )
 
 def get_sunday_report():
-    # 일요일 오후 1시: 당첨 결과 대조 및 전적 통계
     return (
         "🏆 <b>SANI LOTTO — 당첨 결과 & 전적 통계 리포트</b>\n"
         "━━━━━━━━━━━━━━━━━━\n"
