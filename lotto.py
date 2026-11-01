@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lotto 6/45 Telegram Analyzer & Notifier (Fixed/Exclude Upgrade & Layout Fixed)
+"""Lotto 6/45 Telegram Analyzer & Notifier (Sunday Report Updated)
 
 Schedule Logic:
 - Monday 18:00 KST: Smart Statistical Report
@@ -121,10 +121,14 @@ def get_sunday_report():
         "📌 지난 회차 당첨 번호 대조 결과 및 누적 적중률입니다.\n\n"
         "🎱 <b>최신 당첨 번호</b>\n"
         "08 · 14 · 21 · 22 · 42 · 45 | 보너스 24\n\n"
-        "📊 <b>추천 조합 적중 결과 (10조합 대조)</b>\n"
-        "- 3등/4등/5등 당첨 및 번호 일치 현황 집계 완료\n\n"
+        "📊 <b>추천 조합 적중 결과</b>\n"
+        "- 이번 회차 번호 대조 및 당첨 집계 완료\n\n"
         "📈 <b>누적 전적 통계</b>\n"
-        "- 총 추적 회차 및 통계 기반 적중률 유지 중"
+        "🥇 1등: 0회\n"
+        "🥈 2등: 0회\n"
+        "🥉 3등: 0회\n"
+        "🎖️ 4등: 0회\n"
+        "🎗️ 5등: 0회"
     )
 
 def main():
