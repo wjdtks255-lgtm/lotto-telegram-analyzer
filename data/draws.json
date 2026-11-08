@@ -1,6 +1,6 @@
 {
   "source": "smok95/lotto (third-party mirror; verify against official results)",
-  "updated_at": "2026-11-03T03:59:35+09:00",
+  "updated_at": "2026-11-08T19:48:20+09:00",
   "draws": [
     {
       "round": 1,
@@ -16225,6 +16225,19 @@
         42
       ],
       "bonus": 22
+    },
+    {
+      "round": 1249,
+      "date": "2026-11-07",
+      "numbers": [
+        2,
+        11,
+        16,
+        25,
+        34,
+        35
+      ],
+      "bonus": 14
     }
   ]
 }
